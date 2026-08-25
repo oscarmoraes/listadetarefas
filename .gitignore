@@ -1,0 +1,13 @@
+# Dependências
+node_modules/
+
+# Logs e arquivos de sistema
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Arquivos temporários e zips
+*.zip
+.env
+.env.local

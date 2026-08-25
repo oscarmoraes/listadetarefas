@@ -1,0 +1,19 @@
+{
+  "name": "lista-de-tarefas-gcp",
+  "version": "1.0.0",
+  "description": "Aplicação de Lista de Tarefas serverless no Google Cloud (Cloud Run + Firestore)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": ["google-cloud", "cloud-run", "firestore", "tasks", "todo"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@google-cloud/firestore": "^7.11.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arquitetura de Infraestrutura - TaskFlow</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --primary: #2563EB;
+      --surface: #FFFFFF;
+      --bg: #F8FAFC;
+      --border: #E2E8F0;
+      --text: #0F172A;
+      --text-muted: #64748B;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      padding: 24px 16px;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+    }
+
+    .top-bar a {
+      color: var(--primary);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .title-area h1 {
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .title-area p {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .grid-zones {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+    }
+
+    .zone {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .zone-title {
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .service-item {
+      background: #F8FAFC;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .service-icon {
+      width: 36px;
+      height: 36px;
+      background: #EFF6FF;
+      color: var(--primary);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 15px;
+    }
+
+    .service-name {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    .service-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    
+    <div class="top-bar">
+      <div class="title-area">
+        <h1>Diagrama de Arquitetura da Infraestrutura</h1>
+        <p>Visão dos componentes em nuvem e microsserviços</p>
+      </div>
+      <a href="/"><i class="fa-solid fa-arrow-left"></i> Voltar ao App</a>
+    </div>
+
+    <div class="grid-zones">
+      
+      <!-- Ingress -->
+      <div class="zone">
+        <div class="zone-title"><i class="fa-solid fa-globe" style="color: #2563EB;"></i> Frontend & Entrada</div>
+        <div class="service-item">
+          <div class="service-icon"><i class="fa-solid fa-desktop"></i></div>
+          <div>
+            <div class="service-name">SPA Client</div>
+            <div class="service-desc">Interface web responsiva com Material Design.</div>
+          </div>
+        </div>
+        <div class="service-item">
+          <div class="service-icon"><i class="fa-solid fa-shield-halved"></i></div>
+          <div>
+            <div class="service-name">HTTPS & CDN</div>
+            <div class="service-desc">Proteção contra ataques e cache de arquivos estáticos.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Backend -->
+      <div class="zone">
+        <div class="zone-title"><i class="fa-solid fa-server" style="color: #16A34A;"></i> Backend & API</div>
+        <div class="service-item">
+          <div class="service-icon" style="background:#F0FDF4; color:#16A34A;"><i class="fa-solid fa-cube"></i></div>
+          <div>
+            <div class="service-name">Container Serverless (Cloud Run)</div>
+            <div class="service-desc">API REST (Node.js/Express) com autoescalonamento sob demanda.</div>
+          </div>
+        </div>
+        <div class="service-item">
+          <div class="service-icon" style="background:#F0FDF4; color:#16A34A;"><i class="fa-solid fa-clock"></i></div>
+          <div>
+            <div class="service-name">Agendador de Tarefas</div>
+            <div class="service-desc">Execução de rotinas e lembretes com prazos definidos.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Persistence -->
+      <div class="zone">
+        <div class="zone-title"><i class="fa-solid fa-database" style="color: #D97706;"></i> Banco de Dados</div>
+        <div class="service-item">
+          <div class="service-icon" style="background:#FFFBEB; color:#D97706;"><i class="fa-solid fa-database"></i></div>
+          <div>
+            <div class="service-name">Cloud Firestore</div>
+            <div class="service-desc">Banco NoSQL escalável e de baixa latência para persistência das tarefas.</div>
+          </div>
+        </div>
+        <div class="service-item">
+          <div class="service-icon" style="background:#FFFBEB; color:#D97706;"><i class="fa-solid fa-key"></i></div>
+          <div>
+            <div class="service-name">Gerenciador de Chaves</div>
+            <div class="service-desc">Armazenamento seguro de credenciais e variáveis sensíveis.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+</body>
+</html>

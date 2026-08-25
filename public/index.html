@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskFlow - Gestão de Tarefas</title>
+  <!-- Google Fonts: Inter & Roboto -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="app-layout">
+    
+    <!-- Topbar Limpa -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <i class="fa-solid fa-check-double"></i>
+        </div>
+        <span class="brand-name">TaskFlow</span>
+      </div>
+
+      <div class="header-actions">
+        <a href="/arquitetura_gcp.html" class="header-link" title="Diagrama de Arquitetura">
+          <i class="fa-solid fa-diagram-project"></i>
+          <span class="link-label">Arquitetura</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="main-content">
+
+      <!-- Add Task Input -->
+      <section class="task-input-wrapper">
+        <div class="task-input-bar">
+          <i class="fa-solid fa-plus input-icon"></i>
+          <input type="text" id="taskTitleInput" placeholder="O que você precisa fazer hoje?" autocomplete="off">
+          <button class="btn-expand" id="btnToggleDetails" title="Mais opções">
+            <i class="fa-solid fa-sliders"></i>
+          </button>
+          <button class="btn-submit" id="btnAddTask">
+            <span>Adicionar</span>
+            <i class="fa-solid fa-arrow-right"></i>
+          </button>
+        </div>
+
+        <!-- Opções Opcionais Recolhíveis -->
+        <div class="task-details-drawer" id="taskDetailsDrawer">
+          <textarea id="taskDescInput" placeholder="Adicionar detalhes ou anotações..." rows="2"></textarea>
+          
+          <div class="details-grid">
+            <div class="detail-field">
+              <label for="taskCategorySelect"><i class="fa-solid fa-tag"></i> Categoria</label>
+              <select id="taskCategorySelect">
+                <option value="Geral">Geral</option>
+                <option value="Trabalho">Trabalho</option>
+                <option value="Estudo">Estudo</option>
+                <option value="Pessoal">Pessoal</option>
+              </select>
+            </div>
+
+            <div class="detail-field">
+              <label for="taskPrioritySelect"><i class="fa-solid fa-flag"></i> Prioridade</label>
+              <select id="taskPrioritySelect">
+                <option value="low">Baixa</option>
+                <option value="medium" selected>Média</option>
+                <option value="high">Alta</option>
+              </select>
+            </div>
+
+            <div class="detail-field">
+              <label for="taskDueDateInput"><i class="fa-regular fa-calendar"></i> Prazo</label>
+              <input type="date" id="taskDueDateInput">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Filter Chips & Counter -->
+      <section class="controls-bar">
+        <div class="filter-chips">
+          <button class="chip active" data-filter="all">
+            Todas <span class="chip-count" id="countAll">0</span>
+          </button>
+          <button class="chip" data-filter="pending">
+            Pendentes <span class="chip-count" id="countPending">0</span>
+          </button>
+          <button class="chip" data-filter="completed">
+            Concluídas <span class="chip-count" id="countCompleted">0</span>
+          </button>
+          <button class="chip" data-filter="high">
+            Alta Prioridade
+          </button>
+        </div>
+      </section>
+
+      <!-- Task List Area -->
+      <section class="tasks-section">
+        <div id="tasksContainer" class="tasks-list">
+          <div class="loading-state">
+            <i class="fa-solid fa-circle-notch fa-spin"></i> Carregando tarefas...
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer class="app-footer">
+      <span>TaskFlow &bull; Aplicação Cloud-Native</span>
+    </footer>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
