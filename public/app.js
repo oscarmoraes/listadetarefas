@@ -1,3 +1,28 @@
+// Configuração Oficial do Firebase Web SDK
+const firebaseConfig = {
+  apiKey: "AIzaSyDRNgqdVD1a8R9IU7CbJWPPHz_YrsOYhXk",
+  authDomain: "listadetarefas-506523.firebaseapp.com",
+  projectId: "listadetarefas-506523",
+  storageBucket: "listadetarefas-506523.firebasestorage.app",
+  messagingSenderId: "160309533102",
+  appId: "1:160309533102:web:2bffd8ce67ff4248e0503f",
+  measurementId: "G-81QNH5JKW4"
+};
+
+// Inicialização do Firebase
+if (typeof firebase !== 'undefined') {
+  try {
+    firebase.initializeApp(firebaseConfig);
+    console.log('[Firebase] Inicializado com sucesso!');
+  } catch (e) {
+    console.warn('[Firebase Init Warning]', e.message);
+  }
+}
+
+// Provedor Google Auth
+const googleProvider = new firebase.auth.GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
 // Estado da Aplicação
 let currentUser = null;
 let tasks = [];
@@ -35,33 +60,48 @@ const countAll = document.getElementById('countAll');
 const countPending = document.getElementById('countPending');
 const countCompleted = document.getElementById('countCompleted');
 
-// 1. Inicialização
+// 1. Inicialização e Monitoramento do Auth State
 document.addEventListener('DOMContentLoaded', () => {
-  initUserSession();
+  setupFirebaseAuthObserver();
   setupEventListeners();
   setupFilterListeners();
 });
 
-// 2. Gerenciamento de Sessão do Usuário
-function initUserSession() {
-  const savedUser = localStorage.getItem('taskflow_user');
-  if (savedUser) {
-    try {
-      currentUser = JSON.parse(savedUser);
-      setLoggedInState(currentUser);
-      fetchTasks();
-      return;
-    } catch (e) {
-      localStorage.removeItem('taskflow_user');
-    }
+function setupFirebaseAuthObserver() {
+  if (typeof firebase === 'undefined' || !firebase.auth) {
+    console.warn('Firebase Auth SDK não disponível.');
+    setLoggedOutState();
+    return;
   }
 
-  // Estado Inicial: Deslogado (Mostra Boas-Vindas sem spinner)
-  setLoggedOutState();
+  // Observa mudanças de estado de login em tempo real
+  firebase.auth().onAuthStateChanged((user) => {
+    if (user) {
+      console.log('[Auth] Usuário conectado:', user.email);
+      currentUser = {
+        uid: user.uid,
+        displayName: user.displayName || user.email.split('@')[0],
+        email: user.email,
+        photoURL: user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'U')}&background=2563EB&color=fff`
+      };
+      setLoggedInState(currentUser);
+      fetchTasks();
+    } else {
+      console.log('[Auth] Nenhum usuário conectado.');
+      // Checar se estava em modo convidado local
+      const guestUser = localStorage.getItem('taskflow_guest_user');
+      if (guestUser) {
+        currentUser = JSON.parse(guestUser);
+        setLoggedInState(currentUser);
+        fetchTasks();
+      } else {
+        setLoggedOutState();
+      }
+    }
+  });
 }
 
 function setLoggedInState(user) {
-  // Atualiza Header
   btnHeaderLogin.classList.add('hidden');
   userProfileArea.classList.remove('hidden');
 
@@ -71,7 +111,6 @@ function setLoggedInState(user) {
   userName.textContent = user.displayName || 'Usuário';
   userEmail.textContent = user.email || (user.isGuest ? 'Modo Convidado' : '');
 
-  // Alterna visualização para o app de tarefas
   welcomeHero.classList.add('hidden');
   tasksAppArea.classList.remove('hidden');
 }
@@ -79,90 +118,96 @@ function setLoggedInState(user) {
 function setLoggedOutState() {
   currentUser = null;
   tasks = [];
-  localStorage.removeItem('taskflow_user');
+  localStorage.removeItem('taskflow_guest_user');
 
   btnHeaderLogin.classList.remove('hidden');
   userProfileArea.classList.add('hidden');
   profileDropdown.classList.add('hidden');
 
-  // Mostra Boas-Vindas e esconde a lista de tarefas
   welcomeHero.classList.remove('hidden');
   tasksAppArea.classList.add('hidden');
 }
 
-// 3. Login com Google / Autenticação
-async function handleGoogleLogin() {
-  // Se Google Identity Services estiver disponível
-  if (window.google && google.accounts && google.accounts.oauth2) {
-    const client = google.accounts.oauth2.initTokenClient({
-      client_id: '160309533102-local.apps.googleusercontent.com', // Usará o client do GCP
-      scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-      callback: async (tokenResponse) => {
-        if (tokenResponse && tokenResponse.access_token) {
-          try {
-            const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-              headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
-            }).then(r => r.json());
-
-            const user = {
-              uid: userInfo.sub,
-              displayName: userInfo.name,
-              email: userInfo.email,
-              photoURL: userInfo.picture
-            };
-            loginSuccess(user);
-            return;
-          } catch (err) {
-            console.error('Erro ao buscar dados do Google:', err);
-          }
-        }
-      }
-    });
-    client.requestAccessToken();
+// 2. Fluxo Oficial de Login com Google via Firebase Auth
+async function loginWithGoogle() {
+  if (typeof firebase === 'undefined' || !firebase.auth) {
+    alert('SDK do Firebase não foi carregado. Verifique sua conexão.');
     return;
   }
 
-  // Fallback amigável de login
-  const inputEmail = prompt('Digite seu e-mail do Google para entrar na sua Lista de Tarefas:');
-  if (inputEmail && inputEmail.trim()) {
-    const cleanEmail = inputEmail.trim().toLowerCase();
-    const namePart = cleanEmail.split('@')[0];
-    const formattedName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+  const buttons = [btnHeaderLogin, btnHeroGoogleLogin];
+  buttons.forEach(btn => {
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Conectando...';
+    }
+  });
 
-    const user = {
-      uid: 'user-' + btoa(cleanEmail).replace(/=/g, '').substring(0, 16),
-      displayName: formattedName,
-      email: cleanEmail,
-      photoURL: `https://ui-avatars.com/api/?name=${encodeURIComponent(formattedName)}&background=2563EB&color=fff`
-    };
-    loginSuccess(user);
+  try {
+    // 1. Tentar Login via Pop-up
+    const result = await firebase.auth().signInWithPopup(googleProvider);
+    console.log('[Auth Success]', result.user.displayName);
+  } catch (error) {
+    console.warn('[Popup Auth Error]', error.code, error.message);
+    
+    // Se o popup foi bloqueado pelo navegador, usa Redirect
+    if (error.code === 'auth/popup-blocked' || error.code === 'auth/cancelled-popup-request') {
+      try {
+        await firebase.auth().signInWithRedirect(googleProvider);
+      } catch (redirectErr) {
+        alert('Erro ao redirecionar login: ' + redirectErr.message);
+      }
+    } else if (error.code === 'auth/unauthorized-domain') {
+      alert('Domínio não autorizado no Firebase. Adicione o domínio do Cloud Run nas configurações do Firebase Authentication > Domínios Autorizados.');
+    } else if (error.code !== 'auth/popup-closed-by-user') {
+      alert('Erro no login com Google: ' + error.message);
+    }
+  } finally {
+    const defaultBtnHtml = `
+      <svg class="google-svg" viewBox="0 0 24 24" width="18" height="18">
+        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+      </svg>
+      <span>Entrar com Google</span>
+    `;
+    buttons.forEach(btn => {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = defaultBtnHtml;
+      }
+    });
   }
 }
 
-function handleGuestLogin() {
+// 3. Modo Convidado
+function loginAsGuest() {
   const guestUser = {
-    uid: 'guest-' + (localStorage.getItem('guest_uid') || generateUID()),
+    uid: 'guest-' + (localStorage.getItem('guest_uid') || Math.random().toString(36).substring(2, 10)),
     displayName: 'Visitante',
-    email: 'Modo Local / Convidado',
+    email: 'Modo Convidado',
     isGuest: true,
     photoURL: 'https://ui-avatars.com/api/?name=Visitante&background=64748B&color=fff'
   };
   localStorage.setItem('guest_uid', guestUser.uid.replace('guest-', ''));
-  loginSuccess(guestUser);
-}
+  localStorage.setItem('taskflow_guest_user', JSON.stringify(guestUser));
 
-function loginSuccess(user) {
-  currentUser = user;
-  localStorage.setItem('taskflow_user', JSON.stringify(user));
-  setLoggedInState(user);
+  currentUser = guestUser;
+  setLoggedInState(guestUser);
   fetchTasks();
 }
 
-function generateUID() {
-  return Math.random().toString(36).substring(2, 10);
+// 4. Logout
+async function handleSignOut() {
+  localStorage.removeItem('taskflow_guest_user');
+  if (typeof firebase !== 'undefined' && firebase.auth) {
+    await firebase.auth().signOut();
+  }
+  setLoggedOutState();
 }
 
-// 4. Helper de Cabeçalhos HTTP
+// 5. Helper de Cabeçalhos HTTP
 function getAuthHeaders() {
   const headers = { 'Content-Type': 'application/json' };
   if (currentUser && currentUser.uid) {
@@ -173,7 +218,7 @@ function getAuthHeaders() {
   return headers;
 }
 
-// 5. Buscar Tarefas na API (Apenas quando logado)
+// 6. Buscar Tarefas
 async function fetchTasks() {
   if (!currentUser) return;
 
@@ -200,7 +245,7 @@ async function fetchTasks() {
   }
 }
 
-// 6. Renderizar Tarefas
+// 7. Renderizar Tarefas
 function renderTasks() {
   const filteredTasks = tasks.filter(task => {
     if (activeFilter === 'pending') return !task.completed;
@@ -247,7 +292,7 @@ function renderTasks() {
   }).join('');
 }
 
-// 7. Criar Tarefa
+// 8. Criar Tarefa
 async function handleCreateTask() {
   const title = taskTitleInput.value.trim();
   if (!title) {
@@ -278,7 +323,6 @@ async function handleCreateTask() {
       renderTasks();
       updateCounters();
 
-      // Limpar formulário
       taskTitleInput.value = '';
       taskDescInput.value = '';
       taskDueDateInput.value = '';
@@ -294,7 +338,7 @@ async function handleCreateTask() {
   }
 }
 
-// 8. Atualizar Status
+// 9. Atualizar Status
 async function toggleTaskStatus(id, completed) {
   const task = tasks.find(t => t.id === id);
   if (!task) return;
@@ -314,7 +358,7 @@ async function toggleTaskStatus(id, completed) {
   }
 }
 
-// 9. Deletar Tarefa
+// 10. Deletar Tarefa
 async function deleteTask(id) {
   tasks = tasks.filter(t => t.id !== id);
   renderTasks();
@@ -330,7 +374,7 @@ async function deleteTask(id) {
   }
 }
 
-// 10. Atualizar Contadores
+// 11. Contadores
 function updateCounters() {
   const total = tasks.length;
   const completed = tasks.filter(t => t.completed).length;
@@ -341,13 +385,13 @@ function updateCounters() {
   countCompleted.textContent = completed;
 }
 
-// 11. Eventos e Listeners
+// 12. Listeners de Eventos
 function setupEventListeners() {
-  btnHeaderLogin.addEventListener('click', handleGoogleLogin);
-  btnHeroGoogleLogin.addEventListener('click', handleGoogleLogin);
-  btnHeroGuest.addEventListener('click', handleGuestLogin);
+  btnHeaderLogin.addEventListener('click', loginWithGoogle);
+  btnHeroGoogleLogin.addEventListener('click', loginWithGoogle);
+  btnHeroGuest.addEventListener('click', loginAsGuest);
 
-  btnSignOut.addEventListener('click', setLoggedOutState);
+  btnSignOut.addEventListener('click', handleSignOut);
 
   btnProfileTrigger.addEventListener('click', (e) => {
     e.stopPropagation();
