@@ -91,7 +91,7 @@ body {
   color: var(--text-main);
 }
 
-/* Auth Area */
+/* Auth Buttons */
 .auth-wrapper {
   position: relative;
 }
@@ -247,6 +247,105 @@ body {
   max-width: 680px;
   margin: 0 auto;
   padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Welcome Card (Hero State) */
+.welcome-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 40px 24px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.welcome-icon {
+  width: 56px;
+  height: 56px;
+  background: var(--primary-light);
+  color: var(--primary);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+
+.welcome-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: -0.02em;
+}
+
+.welcome-desc {
+  font-size: 14px;
+  color: var(--text-muted);
+  max-width: 440px;
+  line-height: 1.6;
+}
+
+.welcome-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 300px;
+  margin-top: 8px;
+}
+
+.btn-primary-login {
+  background: #FFFFFF;
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  padding: 10px 16px;
+  border-radius: var(--radius-full);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.15s;
+}
+
+.btn-primary-login:hover {
+  background: #F8FAFC;
+  box-shadow: var(--shadow-md);
+  border-color: #CBD5E1;
+}
+
+.btn-secondary-login {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: color 0.15s;
+}
+
+.btn-secondary-login:hover {
+  color: var(--primary);
+}
+
+/* Tasks App Area */
+.tasks-app-area {
   display: flex;
   flex-direction: column;
   gap: 20px;

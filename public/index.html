@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TaskFlow - Gestão de Tarefas</title>
+  <title>Lista de Tarefas</title>
   <!-- Google Fonts: Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,9 +11,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="style.css">
 
-  <!-- Firebase App & Auth SDK (v10) -->
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
@@ -25,13 +24,13 @@
         <div class="brand-icon">
           <i class="fa-solid fa-check-double"></i>
         </div>
-        <span class="brand-name">TaskFlow</span>
+        <span class="brand-name">Lista de Tarefas</span>
       </div>
 
       <!-- Área de Autenticação / Perfil -->
       <div class="auth-wrapper">
         <!-- Estado: Deslogado -->
-        <button id="btnSignIn" class="btn-google-login">
+        <button id="btnHeaderLogin" class="btn-google-login">
           <svg class="google-svg" viewBox="0 0 24 24" width="18" height="18">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
             <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -43,8 +42,8 @@
 
         <!-- Estado: Logado -->
         <div id="userProfileArea" class="user-profile hidden">
-          <button id="btnProfileTrigger" class="avatar-button" title="Conta">
-            <img id="userAvatar" src="" alt="Foto do Usuário" class="user-avatar-img">
+          <button id="btnProfileTrigger" class="avatar-button" title="Minha Conta">
+            <img id="userAvatar" src="" alt="Foto" class="user-avatar-img">
           </button>
 
           <!-- Dropdown com detalhes do usuário -->
@@ -69,83 +68,114 @@
     <!-- Main Container -->
     <main class="main-content">
 
-      <!-- Add Task Input -->
-      <section class="task-input-wrapper">
-        <div class="task-input-bar">
-          <i class="fa-solid fa-plus input-icon"></i>
-          <input type="text" id="taskTitleInput" placeholder="O que você precisa fazer hoje?" autocomplete="off">
-          <button class="btn-expand" id="btnToggleDetails" title="Mais opções">
-            <i class="fa-solid fa-sliders"></i>
-          </button>
-          <button class="btn-submit" id="btnAddTask">
-            <span>Adicionar</span>
-            <i class="fa-solid fa-arrow-right"></i>
-          </button>
+      <!-- 1. Painel de Boas-Vindas (Exibido para quem não está logado) -->
+      <section id="welcomeHero" class="welcome-card">
+        <div class="welcome-icon">
+          <i class="fa-solid fa-list-check"></i>
         </div>
-
-        <!-- Opções Opcionais Recolhíveis -->
-        <div class="task-details-drawer" id="taskDetailsDrawer">
-          <textarea id="taskDescInput" placeholder="Adicionar detalhes ou anotações..." rows="2"></textarea>
+        <h2 class="welcome-title">Organize suas tarefas com simplicidade</h2>
+        <p class="welcome-desc">
+          Crie suas listas, defina prioridades, prazos e mantenha tudo sincronizado com segurança na nuvem.
+        </p>
+        
+        <div class="welcome-actions">
+          <button id="btnHeroGoogleLogin" class="btn-primary-login">
+            <svg class="google-svg" viewBox="0 0 24 24" width="18" height="18">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+            </svg>
+            <span>Entrar com Conta Google</span>
+          </button>
           
-          <div class="details-grid">
-            <div class="detail-field">
-              <label for="taskCategorySelect"><i class="fa-solid fa-tag"></i> Categoria</label>
-              <select id="taskCategorySelect">
-                <option value="Geral">Geral</option>
-                <option value="Trabalho">Trabalho</option>
-                <option value="Estudo">Estudo</option>
-                <option value="Pessoal">Pessoal</option>
-              </select>
-            </div>
+          <button id="btnHeroGuest" class="btn-secondary-login">
+            <i class="fa-regular fa-user"></i>
+            <span>Testar como Convidado</span>
+          </button>
+        </div>
+      </section>
 
-            <div class="detail-field">
-              <label for="taskPrioritySelect"><i class="fa-solid fa-flag"></i> Prioridade</label>
-              <select id="taskPrioritySelect">
-                <option value="low">Baixa</option>
-                <option value="medium" selected>Média</option>
-                <option value="high">Alta</option>
-              </select>
-            </div>
+      <!-- 2. Painel de Tarefas (Exibido para usuários logados ou convidados ativos) -->
+      <div id="tasksAppArea" class="tasks-app-area hidden">
+        
+        <!-- Add Task Input -->
+        <section class="task-input-wrapper">
+          <div class="task-input-bar">
+            <i class="fa-solid fa-plus input-icon"></i>
+            <input type="text" id="taskTitleInput" placeholder="O que você precisa fazer hoje?" autocomplete="off">
+            <button class="btn-expand" id="btnToggleDetails" title="Mais opções">
+              <i class="fa-solid fa-sliders"></i>
+            </button>
+            <button class="btn-submit" id="btnAddTask">
+              <span>Adicionar</span>
+              <i class="fa-solid fa-arrow-right"></i>
+            </button>
+          </div>
 
-            <div class="detail-field">
-              <label for="taskDueDateInput"><i class="fa-regular fa-calendar"></i> Prazo</label>
-              <input type="date" id="taskDueDateInput">
+          <!-- Opções Opcionais Recolhíveis -->
+          <div class="task-details-drawer" id="taskDetailsDrawer">
+            <textarea id="taskDescInput" placeholder="Adicionar detalhes ou anotações..." rows="2"></textarea>
+            
+            <div class="details-grid">
+              <div class="detail-field">
+                <label for="taskCategorySelect"><i class="fa-solid fa-tag"></i> Categoria</label>
+                <select id="taskCategorySelect">
+                  <option value="Geral">Geral</option>
+                  <option value="Trabalho">Trabalho</option>
+                  <option value="Estudo">Estudo</option>
+                  <option value="Pessoal">Pessoal</option>
+                </select>
+              </div>
+
+              <div class="detail-field">
+                <label for="taskPrioritySelect"><i class="fa-solid fa-flag"></i> Prioridade</label>
+                <select id="taskPrioritySelect">
+                  <option value="low">Baixa</option>
+                  <option value="medium" selected>Média</option>
+                  <option value="high">Alta</option>
+                </select>
+              </div>
+
+              <div class="detail-field">
+                <label for="taskDueDateInput"><i class="fa-regular fa-calendar"></i> Prazo</label>
+                <input type="date" id="taskDueDateInput">
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <!-- Filter Chips & Counter -->
-      <section class="controls-bar">
-        <div class="filter-chips">
-          <button class="chip active" data-filter="all">
-            Todas <span class="chip-count" id="countAll">0</span>
-          </button>
-          <button class="chip" data-filter="pending">
-            Pendentes <span class="chip-count" id="countPending">0</span>
-          </button>
-          <button class="chip" data-filter="completed">
-            Concluídas <span class="chip-count" id="countCompleted">0</span>
-          </button>
-          <button class="chip" data-filter="high">
-            Alta Prioridade
-          </button>
-        </div>
-      </section>
-
-      <!-- Task List Area -->
-      <section class="tasks-section">
-        <div id="tasksContainer" class="tasks-list">
-          <div class="loading-state">
-            <i class="fa-solid fa-circle-notch fa-spin"></i> Carregando suas tarefas...
+        <!-- Filter Chips & Counter -->
+        <section class="controls-bar">
+          <div class="filter-chips">
+            <button class="chip active" data-filter="all">
+              Todas <span class="chip-count" id="countAll">0</span>
+            </button>
+            <button class="chip" data-filter="pending">
+              Pendentes <span class="chip-count" id="countPending">0</span>
+            </button>
+            <button class="chip" data-filter="completed">
+              Concluídas <span class="chip-count" id="countCompleted">0</span>
+            </button>
+            <button class="chip" data-filter="high">
+              Alta Prioridade
+            </button>
           </div>
-        </div>
-      </section>
+        </section>
+
+        <!-- Task List Area -->
+        <section class="tasks-section">
+          <div id="tasksContainer" class="tasks-list">
+            <!-- As tarefas serão renderizadas aqui -->
+          </div>
+        </section>
+
+      </div>
 
     </main>
 
     <footer class="app-footer">
-      <span>TaskFlow &bull; Sincronizado com Google Cloud</span>
+      <span>Lista de Tarefas &bull; Nuvem Google Cloud</span>
     </footer>
 
   </div>
