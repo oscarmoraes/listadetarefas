@@ -21,7 +21,7 @@ gcloud config set project $PROJECT_ID
 # 2. Fazer Build e Deploy no Cloud Run com um único comando
 Write-Host "`n[2/3] Enviando container para o Cloud Build e Cloud Run..." -ForegroundColor White
 $envVars = "GCP_PROJECT_ID=$PROJECT_ID,NODE_ENV=production," + `
-           "FIREBASE_API_KEY=AIzaSyDRNgqdVD1a8R9IU7CbJWPPHz_YrsOYhXk," + `
+           "FIREBASE_API_KEY=AIzaSyB1lqfiwCSEWXI_HCj9NYincrbqtVum8T8," + `
            "FIREBASE_AUTH_DOMAIN=listadetarefas-506523.firebaseapp.com," + `
            "FIREBASE_PROJECT_ID=listadetarefas-506523," + `
            "FIREBASE_STORAGE_BUCKET=listadetarefas-506523.firebasestorage.app," + `
