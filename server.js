@@ -15,81 +15,73 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Inicialização do Google Cloud Firestore
 let db;
 let useMemoryFallback = false;
-let memoryTasks = [
-  {
-    id: 'demo-1',
-    title: 'Configurar projeto no Google Cloud Platform',
-    description: 'Ativar APIs Cloud Run, Firestore e Artifact Registry',
-    priority: 'high',
-    category: 'Infraestrutura',
-    completed: true,
-    dueDate: new Date().toISOString().split('T')[0],
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'demo-2',
-    title: 'Deploy da API no Cloud Run',
-    description: 'Executar o script de deploy automatizado para o GCP',
-    priority: 'medium',
-    category: 'Deploy',
-    completed: false,
-    dueDate: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-    createdAt: new Date().toISOString()
-  }
-];
+let memoryTasks = [];
 
 try {
   db = new Firestore({
     projectId: PROJECT_ID,
-    // Em produção no Cloud Run, as credenciais são injetadas automaticamente
     ignoreUndefinedProperties: true
   });
   console.log(`[GCP Firestore] Conectado ao projeto: ${PROJECT_ID}`);
 } catch (error) {
-  console.warn('[Aviso] Não foi possível autenticar diretamente no Firestore GCP localmente. Usando modo de desenvolvimento em memória.', error.message);
+  console.warn('[Aviso] Modo de desenvolvimento local ativo.', error.message);
   useMemoryFallback = true;
 }
 
 const COLLECTION_NAME = 'tasks';
 
-// 1. Healthcheck Endpoint (Padrão Cloud Run)
+// Middleware para extrair ID do usuário da requisição
+function extractUserId(req) {
+  return req.headers['x-user-id'] || 'anonymous';
+}
+
+// 1. Healthcheck
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
-    timestamp: new Date().toISOString(),
     project: PROJECT_ID,
-    environment: process.env.NODE_ENV || 'development',
     storageMode: useMemoryFallback ? 'in-memory-fallback' : 'cloud-firestore'
   });
 });
 
-// 2. Listar todas as tarefas
+// 2. Listar tarefas do usuário logado
 app.get('/api/tasks', async (req, res) => {
   try {
+    const userId = extractUserId(req);
+
     if (!useMemoryFallback) {
       try {
-        const snapshot = await db.collection(COLLECTION_NAME).orderBy('createdAt', 'desc').get();
+        const snapshot = await db.collection(COLLECTION_NAME)
+          .where('userId', '==', userId)
+          .get();
+
         const tasks = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
         }));
+
+        // Ordenar por data de criação decrescente
+        tasks.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
         return res.json({ success: true, count: tasks.length, data: tasks });
       } catch (firestoreErr) {
-        console.warn('[Firestore Fallback]', firestoreErr.message);
-        // Fallback local se não houver credencial GCP no ambiente de dev local
-        return res.json({ success: true, count: memoryTasks.length, data: memoryTasks, note: 'Memória local ativa' });
+        console.warn('[Firestore Query Fallback]', firestoreErr.message);
       }
-    } else {
-      return res.json({ success: true, count: memoryTasks.length, data: memoryTasks });
     }
+
+    // Fallback local
+    const userTasks = memoryTasks.filter(t => t.userId === userId);
+    return res.json({ success: true, count: userTasks.length, data: userTasks });
+
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 3. Criar nova tarefa
+// 3. Criar nova tarefa associada ao usuário
 app.post('/api/tasks', async (req, res) => {
   try {
+    const userId = extractUserId(req);
     const { title, description = '', priority = 'medium', category = 'Geral', dueDate = null } = req.body;
 
     if (!title || title.trim() === '') {
@@ -97,9 +89,10 @@ app.post('/api/tasks', async (req, res) => {
     }
 
     const newTask = {
+      userId,
       title: title.trim(),
       description: description.trim(),
-      priority, // 'low', 'medium', 'high'
+      priority,
       category,
       dueDate: dueDate || null,
       completed: false,
@@ -119,7 +112,7 @@ app.post('/api/tasks', async (req, res) => {
       }
     }
 
-    // Modo local / Fallback
+    // Fallback local
     const localId = 'task-' + Date.now();
     const taskWithId = { id: localId, ...newTask };
     memoryTasks.unshift(taskWithId);
@@ -130,28 +123,38 @@ app.post('/api/tasks', async (req, res) => {
   }
 });
 
-// 4. Atualizar tarefa (Status, título, etc)
+// 4. Atualizar tarefa (valida se pertence ao usuário)
 app.put('/api/tasks/:id', async (req, res) => {
   try {
+    const userId = extractUserId(req);
     const { id } = req.params;
     const updates = { ...req.body, updatedAt: new Date().toISOString() };
+    delete updates.userId; // impede troca de dono
 
     if (!useMemoryFallback) {
       try {
         const docRef = db.collection(COLLECTION_NAME).doc(id);
         const doc = await docRef.get();
-        if (doc.exists) {
-          await docRef.update(updates);
-          const updatedDoc = await docRef.get();
-          return res.json({ success: true, data: { id: docRef.id, ...updatedDoc.data() } });
+
+        if (!doc.exists) {
+          return res.status(404).json({ success: false, error: 'Tarefa não encontrada.' });
         }
+
+        const data = doc.data();
+        if (data.userId && data.userId !== userId) {
+          return res.status(403).json({ success: false, error: 'Não autorizado a alterar esta tarefa.' });
+        }
+
+        await docRef.update(updates);
+        const updatedDoc = await docRef.get();
+        return res.json({ success: true, data: { id: docRef.id, ...updatedDoc.data() } });
       } catch (firestoreErr) {
         console.warn('[Firestore Update Fallback]', firestoreErr.message);
       }
     }
 
     // Fallback local
-    const index = memoryTasks.findIndex(t => t.id === id);
+    const index = memoryTasks.findIndex(t => t.id === id && t.userId === userId);
     if (index === -1) {
       return res.status(404).json({ success: false, error: 'Tarefa não encontrada.' });
     }
@@ -163,14 +166,27 @@ app.put('/api/tasks/:id', async (req, res) => {
   }
 });
 
-// 5. Deletar tarefa
+// 5. Deletar tarefa (valida se pertence ao usuário)
 app.delete('/api/tasks/:id', async (req, res) => {
   try {
+    const userId = extractUserId(req);
     const { id } = req.params;
 
     if (!useMemoryFallback) {
       try {
-        await db.collection(COLLECTION_NAME).doc(id).delete();
+        const docRef = db.collection(COLLECTION_NAME).doc(id);
+        const doc = await docRef.get();
+
+        if (!doc.exists) {
+          return res.status(404).json({ success: false, error: 'Tarefa não encontrada.' });
+        }
+
+        const data = doc.data();
+        if (data.userId && data.userId !== userId) {
+          return res.status(403).json({ success: false, error: 'Não autorizado a excluir esta tarefa.' });
+        }
+
+        await docRef.delete();
         return res.json({ success: true, message: 'Tarefa excluída com sucesso.', id });
       } catch (firestoreErr) {
         console.warn('[Firestore Delete Fallback]', firestoreErr.message);
@@ -179,7 +195,7 @@ app.delete('/api/tasks/:id', async (req, res) => {
 
     // Fallback local
     const initialLen = memoryTasks.length;
-    memoryTasks = memoryTasks.filter(t => t.id !== id);
+    memoryTasks = memoryTasks.filter(t => !(t.id === id && t.userId === userId));
     if (memoryTasks.length === initialLen) {
       return res.status(404).json({ success: false, error: 'Tarefa não encontrada.' });
     }
@@ -190,11 +206,6 @@ app.delete('/api/tasks/:id', async (req, res) => {
   }
 });
 
-// Iniciar Servidor
 app.listen(PORT, () => {
-  console.log(`=========================================`);
-  console.log(`🚀 Lista de Tarefas (Google Cloud API)`);
-  console.log(`🌐 Servidor rodando em: http://localhost:${PORT}`);
-  console.log(`☁️ Projeto GCP: ${PROJECT_ID}`);
-  console.log(`=========================================`);
+  console.log(`🚀 TaskFlow Backend rodando na porta: ${PORT}`);
 });
