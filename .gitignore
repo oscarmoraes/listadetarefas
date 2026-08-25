@@ -1,6 +1,16 @@
 # Dependências
 node_modules/
 
+# Variáveis de Ambiente e Segredos (NUNCA COMMITAR)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.pfx
+*.p12
+
 # Logs e arquivos de sistema
 *.log
 npm-debug.log*
@@ -9,5 +19,3 @@ Thumbs.db
 
 # Arquivos temporários e zips
 *.zip
-.env
-.env.local

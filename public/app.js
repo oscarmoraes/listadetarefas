@@ -1,32 +1,36 @@
-// Configuração Oficial do Firebase Web SDK
-const firebaseConfig = {
-  apiKey: "AIzaSyDRNgqdVD1a8R9IU7CbJWPPHz_YrsOYhXk",
-  authDomain: "listadetarefas-506523.firebaseapp.com",
-  projectId: "listadetarefas-506523",
-  storageBucket: "listadetarefas-506523.firebasestorage.app",
-  messagingSenderId: "160309533102",
-  appId: "1:160309533102:web:2bffd8ce67ff4248e0503f",
-  measurementId: "G-81QNH5JKW4"
-};
-
-// Inicialização do Firebase
-if (typeof firebase !== 'undefined') {
-  try {
-    firebase.initializeApp(firebaseConfig);
-    console.log('[Firebase] Inicializado com sucesso!');
-  } catch (e) {
-    console.warn('[Firebase Init Warning]', e.message);
-  }
-}
-
 // Provedor Google Auth
-const googleProvider = new firebase.auth.GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+let googleProvider = null;
 
 // Estado da Aplicação
 let currentUser = null;
 let tasks = [];
 let activeFilter = 'all';
+let isFirebaseInitialized = false;
+
+// Inicialização segura do Firebase via Runtime Config
+async function initFirebaseConfig() {
+  try {
+    const res = await fetch('/api/config');
+    const firebaseConfig = await res.json();
+
+    if (typeof firebase !== 'undefined' && firebaseConfig && firebaseConfig.apiKey) {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+        console.log('[Firebase] Inicializado via Runtime Config com sucesso.');
+      }
+      googleProvider = new firebase.auth.GoogleAuthProvider();
+      googleProvider.setCustomParameters({ prompt: 'select_account' });
+      isFirebaseInitialized = true;
+      setupFirebaseAuthObserver();
+    } else {
+      console.warn('[Firebase] Configuração ou SDK não disponível.');
+      setLoggedOutState();
+    }
+  } catch (error) {
+    console.error('[Firebase Init Error]', error);
+    setLoggedOutState();
+  }
+}
 
 // Elementos do DOM - Auth & Perfil
 const btnHeaderLogin = document.getElementById('btnHeaderLogin');
@@ -62,9 +66,9 @@ const countCompleted = document.getElementById('countCompleted');
 
 // 1. Inicialização e Monitoramento do Auth State
 document.addEventListener('DOMContentLoaded', () => {
-  setupFirebaseAuthObserver();
   setupEventListeners();
   setupFilterListeners();
+  initFirebaseConfig();
 });
 
 function setupFirebaseAuthObserver() {
@@ -133,6 +137,11 @@ async function loginWithGoogle() {
   if (typeof firebase === 'undefined' || !firebase.auth) {
     alert('SDK do Firebase não foi carregado. Verifique sua conexão.');
     return;
+  }
+
+  if (!googleProvider) {
+    googleProvider = new firebase.auth.GoogleAuthProvider();
+    googleProvider.setCustomParameters({ prompt: 'select_account' });
   }
 
   const buttons = [btnHeaderLogin, btnHeroGoogleLogin];
