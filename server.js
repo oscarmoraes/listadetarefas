@@ -35,6 +35,13 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 const corsOptions = {
+  /**
+   * Valida se a origem da requisição HTTP está autorizada pela política de CORS.
+   *
+   * @param {string|undefined} origin - Cabeçalho Origin enviado pelo navegador ou cliente.
+   * @param {Function} callback - Callback do pacote cors `(err, allow)` que libera ou bloqueia a origem.
+   * @returns {void}
+   */
   origin(origin, callback) {
     // Permite requisições sem Origin (same-origin, healthchecks, clientes CLI)
     if (!origin) {
@@ -74,7 +81,15 @@ try {
 
 const COLLECTION_NAME = 'tasks';
 
-// Middleware de autenticação JWT via Firebase Admin SDK
+/**
+ * Middleware de autenticação JWT via Firebase Admin SDK.
+ * Extrai o token Bearer do cabeçalho Authorization, valida a assinatura e popula `req.user`.
+ *
+ * @param {import('express').Request} req - Objeto da requisição HTTP.
+ * @param {import('express').Response} res - Objeto da resposta HTTP.
+ * @param {import('express').NextFunction} next - Função para avançar ao próximo middleware ou rota.
+ * @returns {Promise<void>}
+ */
 async function authenticateRequest(req, res, next) {
   const authHeader = req.headers.authorization;
   const match = typeof authHeader === 'string' ? authHeader.match(/^Bearer\s+(.+)$/i) : null;
@@ -103,7 +118,13 @@ async function authenticateRequest(req, res, next) {
   }
 }
 
-// 1. Healthcheck (público)
+/**
+ * Rota pública de healthcheck para monitoramento do serviço e verificação do modo de armazenamento.
+ *
+ * @param {import('express').Request} req - Objeto da requisição HTTP.
+ * @param {import('express').Response} res - Objeto da resposta HTTP.
+ * @returns {void}
+ */
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
@@ -112,7 +133,14 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// 2. Endpoint de Configuração Segura em Tempo de Execução (público)
+/**
+ * Rota pública que fornece as configurações do Firebase Web SDK em tempo de execução.
+ * Evita expor chaves hardcoded no código-fonte do frontend.
+ *
+ * @param {import('express').Request} req - Objeto da requisição HTTP.
+ * @param {import('express').Response} res - Objeto da resposta HTTP.
+ * @returns {void}
+ */
 app.get('/api/config', (req, res) => {
   res.json({
     apiKey: process.env.FIREBASE_API_KEY || '',
@@ -125,7 +153,14 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-// 3. Listar tarefas do usuário autenticado
+/**
+ * Lista todas as tarefas pertencentes ao usuário autenticado, ordenadas da mais recente para a mais antiga.
+ * Usa o Firestore como armazenamento principal e recorre à memória local em caso de falha ou modo offline.
+ *
+ * @param {import('express').Request} req - Requisição HTTP contendo `req.user.uid`.
+ * @param {import('express').Response} res - Resposta HTTP com a lista de tarefas.
+ * @returns {Promise<void>}
+ */
 app.get('/api/tasks', authenticateRequest, async (req, res) => {
   try {
     const userId = req.user.uid;
@@ -136,12 +171,13 @@ app.get('/api/tasks', authenticateRequest, async (req, res) => {
           .where('userId', '==', userId)
           .get();
 
+        // Converte os documentos do Firestore incluindo o ID gerado no objeto final
         const tasks = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
         }));
 
-        // Ordenar por data de criação decrescente
+        // Ordenar por data de criação decrescente (evita necessidade de índice composto no Firestore)
         tasks.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
         return res.json({ success: true, count: tasks.length, data: tasks });
@@ -150,7 +186,7 @@ app.get('/api/tasks', authenticateRequest, async (req, res) => {
       }
     }
 
-    // Fallback local
+    // Fallback local: filtra tarefas em memória pertencentes ao usuário atual
     const userTasks = memoryTasks.filter(t => t.userId === userId);
     return res.json({ success: true, count: userTasks.length, data: userTasks });
 
@@ -159,7 +195,14 @@ app.get('/api/tasks', authenticateRequest, async (req, res) => {
   }
 });
 
-// 4. Criar nova tarefa associada ao usuário autenticado
+/**
+ * Cria uma nova tarefa vinculada ao `uid` do usuário autenticado.
+ * Valida a obrigatoriedade do título antes de persistir no Firestore ou no fallback em memória.
+ *
+ * @param {import('express').Request} req - Requisição HTTP contendo os dados da tarefa no corpo (`req.body`).
+ * @param {import('express').Response} res - Resposta HTTP com status 201 e a tarefa criada.
+ * @returns {Promise<void>}
+ */
 app.post('/api/tasks', authenticateRequest, async (req, res) => {
   try {
     const userId = req.user.uid;
@@ -204,7 +247,14 @@ app.post('/api/tasks', authenticateRequest, async (req, res) => {
   }
 });
 
-// 5. Atualizar tarefa (valida se pertence ao usuário autenticado)
+/**
+ * Atualiza parcialmente uma tarefa existente após verificar que ela pertence ao usuário autenticado.
+ * Aplica uma lista explícita de campos permitidos para evitar sobrescrita de `userId` ou `createdAt`.
+ *
+ * @param {import('express').Request} req - Requisição HTTP com parâmetro `id` e campos a atualizar em `req.body`.
+ * @param {import('express').Response} res - Resposta HTTP com a tarefa atualizada ou erro 403/404.
+ * @returns {Promise<void>}
+ */
 app.put('/api/tasks/:id', authenticateRequest, async (req, res) => {
   try {
     const userId = req.user.uid;
@@ -212,6 +262,7 @@ app.put('/api/tasks/:id', authenticateRequest, async (req, res) => {
     const allowedFields = ['title', 'description', 'priority', 'category', 'dueDate', 'completed'];
     const updates = { updatedAt: new Date().toISOString() };
 
+    // Copia apenas os campos permitidos presentes no corpo da requisição
     for (const field of allowedFields) {
       if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) {
         updates[field] = req.body[field];
@@ -240,7 +291,7 @@ app.put('/api/tasks/:id', authenticateRequest, async (req, res) => {
       }
     }
 
-    // Fallback local
+    // Fallback local: localiza a tarefa pelo ID e valida posse pelo userId
     const index = memoryTasks.findIndex(t => t.id === id && t.userId === userId);
     if (index === -1) {
       return res.status(404).json({ success: false, error: 'Tarefa não encontrada.' });
@@ -253,7 +304,13 @@ app.put('/api/tasks/:id', authenticateRequest, async (req, res) => {
   }
 });
 
-// 6. Deletar tarefa (valida se pertence ao usuário autenticado)
+/**
+ * Exclui uma tarefa específica após validar que o documento pertence ao usuário autenticado.
+ *
+ * @param {import('express').Request} req - Requisição HTTP contendo o parâmetro `id` da tarefa.
+ * @param {import('express').Response} res - Resposta HTTP confirmando a exclusão ou erro 403/404.
+ * @returns {Promise<void>}
+ */
 app.delete('/api/tasks/:id', authenticateRequest, async (req, res) => {
   try {
     const userId = req.user.uid;
@@ -280,7 +337,7 @@ app.delete('/api/tasks/:id', authenticateRequest, async (req, res) => {
       }
     }
 
-    // Fallback local
+    // Fallback local: remove apenas se o ID e o userId corresponderem
     const initialLen = memoryTasks.length;
     memoryTasks = memoryTasks.filter(t => !(t.id === id && t.userId === userId));
     if (memoryTasks.length === initialLen) {
@@ -293,6 +350,9 @@ app.delete('/api/tasks/:id', authenticateRequest, async (req, res) => {
   }
 });
 
+/**
+ * Inicializa o servidor HTTP na porta configurada e exibe o log de inicialização.
+ */
 app.listen(PORT, () => {
   console.log(`🚀 Lista de Tarefas Backend rodando na porta: ${PORT}`);
 });

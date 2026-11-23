@@ -14,10 +14,22 @@ let isFirebaseInitialized = false;
 let isHandlingSessionExpired = false;
 
 // Helpers de Sessão Convidado (localStorage)
+
+/**
+ * Verifica se o usuário atual está utilizando o aplicativo no modo convidado local.
+ *
+ * @returns {boolean} `true` se a sessão ativa for de convidado; caso contrário, `false`.
+ */
 function isGuestSession() {
   return Boolean(currentUser && currentUser.isGuest);
 }
 
+/**
+ * Gera um identificador único para tarefas criadas no modo convidado.
+ * Utiliza `crypto.randomUUID` quando disponível, com fallback baseado em timestamp e valor aleatório.
+ *
+ * @returns {string} ID único prefixado com `guest-`.
+ */
 function generateGuestTaskId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return `guest-${crypto.randomUUID()}`;
@@ -25,6 +37,12 @@ function generateGuestTaskId() {
   return `guest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/**
+ * Carrega as tarefas do modo convidado armazenadas no `localStorage` do navegador,
+ * ordenando-as da mais recente para a mais antiga.
+ *
+ * @returns {Array<Object>} Lista de tarefas armazenadas localmente (ou array vazio em caso de erro).
+ */
 function loadGuestTasks() {
   try {
     const raw = localStorage.getItem(GUEST_TASKS_STORAGE_KEY);
@@ -38,6 +56,12 @@ function loadGuestTasks() {
   }
 }
 
+/**
+ * Persiste a lista de tarefas do modo convidado no `localStorage` do navegador.
+ *
+ * @param {Array<Object>} taskList - Lista completa de tarefas a ser salva localmente.
+ * @returns {void}
+ */
 function saveGuestTasks(taskList) {
   try {
     localStorage.setItem(GUEST_TASKS_STORAGE_KEY, JSON.stringify(taskList));
@@ -47,6 +71,12 @@ function saveGuestTasks(taskList) {
   }
 }
 
+/**
+ * Restaura uma sessão anterior de modo convidado a partir do `localStorage`, caso exista.
+ * Atualiza a interface para o estado autenticado e carrega as tarefas locais.
+ *
+ * @returns {boolean} `true` se uma sessão convidado válida foi restaurada; caso contrário, `false`.
+ */
 function restoreGuestSessionIfPresent() {
   try {
     const rawGuest = localStorage.getItem(GUEST_USER_STORAGE_KEY);
@@ -66,7 +96,12 @@ function restoreGuestSessionIfPresent() {
   return false;
 }
 
-// Inicialização segura do Firebase via Runtime Config
+/**
+ * Busca as configurações públicas do Firebase em `/api/config` e inicializa o SDK no cliente.
+ * Caso o Firebase não esteja disponível, tenta restaurar o modo convidado ou exibe a tela de boas-vindas.
+ *
+ * @returns {Promise<void>}
+ */
 async function initFirebaseConfig() {
   try {
     const res = await fetch('/api/config');
@@ -128,12 +163,23 @@ const countPending = document.getElementById('countPending');
 const countCompleted = document.getElementById('countCompleted');
 
 // 1. Inicialização e Monitoramento do Auth State
+
+/**
+ * Ponto de entrada da aplicação após o carregamento completo do DOM.
+ * Registra os ouvintes de eventos, filtros e inicializa o Firebase.
+ */
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   setupFilterListeners();
   initFirebaseConfig();
 });
 
+/**
+ * Configura o observador em tempo real do estado de autenticação do Firebase Auth.
+ * Atualiza `currentUser`, alterna a UI e dispara a busca de tarefas conforme o usuário entra ou sai.
+ *
+ * @returns {void}
+ */
 function setupFirebaseAuthObserver() {
   if (typeof firebase === 'undefined' || !firebase.auth) {
     console.warn('Firebase Auth SDK não disponível.');
@@ -143,7 +189,7 @@ function setupFirebaseAuthObserver() {
     return;
   }
 
-  // Observa mudanças de estado de login em tempo real
+  // Callback executado sempre que o estado de autenticação do Firebase muda (login, logout ou restauração de sessão)
   firebase.auth().onAuthStateChanged((user) => {
     if (user) {
       console.log('[Auth] Usuário conectado:', user.email);
@@ -167,6 +213,13 @@ function setupFirebaseAuthObserver() {
   });
 }
 
+/**
+ * Atualiza a interface para o estado autenticado (Google ou Modo Convidado),
+ * preenchendo avatar, nome e subtítulo no cabeçalho e exibindo o painel de tarefas.
+ *
+ * @param {Object} user - Objeto representando o usuário atual (`displayName`, `email`, `photoURL`, `isGuest`).
+ * @returns {void}
+ */
 function setLoggedInState(user) {
   btnHeaderLogin.classList.add('hidden');
   userProfileArea.classList.remove('hidden');
@@ -184,6 +237,12 @@ function setLoggedInState(user) {
   tasksAppArea.classList.remove('hidden');
 }
 
+/**
+ * Redefine o estado da aplicação e a interface para a tela inicial não autenticada.
+ * Limpa a lista de tarefas em memória e remove o registro de sessão convidado.
+ *
+ * @returns {void}
+ */
 function setLoggedOutState() {
   currentUser = null;
   tasks = [];
@@ -197,7 +256,12 @@ function setLoggedOutState() {
   tasksAppArea.classList.add('hidden');
 }
 
-// 2. Fluxo Oficial de Login com Google via Firebase Auth
+/**
+ * Inicia o fluxo oficial de login com conta Google via Firebase Auth (pop-up com fallback para redirect).
+ * Desabilita os botões de login durante a tentativa e restaura o estado visual no bloco `finally`.
+ *
+ * @returns {Promise<void>}
+ */
 async function loginWithGoogle() {
   if (!isFirebaseInitialized || typeof firebase === 'undefined' || !firebase.auth) {
     alert('SDK do Firebase não foi inicializado. Verifique a configuração do ambiente.');
@@ -209,6 +273,7 @@ async function loginWithGoogle() {
     googleProvider.setCustomParameters({ prompt: 'select_account' });
   }
 
+  // Exibe estado de carregamento em todos os botões de login Google visíveis
   const buttons = [btnHeaderLogin, btnHeroGoogleLogin];
   buttons.forEach(btn => {
     if (btn) {
@@ -246,6 +311,7 @@ async function loginWithGoogle() {
       </svg>
       <span>Entrar com Google</span>
     `;
+    // Restaura o HTML padrão e reabilita os botões de login após o término do fluxo
     buttons.forEach(btn => {
       if (btn) {
         btn.disabled = false;
@@ -255,7 +321,11 @@ async function loginWithGoogle() {
   }
 }
 
-// 3. Modo Convidado (armazenamento exclusivo em localStorage)
+/**
+ * Inicia uma sessão local no Modo Convidado utilizando armazenamento exclusivo em `localStorage`.
+ *
+ * @returns {void}
+ */
 function loginAsGuest() {
   const guestUser = {
     uid: 'guest-' + (localStorage.getItem('guest_uid') || Math.random().toString(36).substring(2, 10)),
@@ -272,7 +342,12 @@ function loginAsGuest() {
   fetchTasks();
 }
 
-// 4. Logout
+/**
+ * Encerra a sessão atual do usuário (tanto no Firebase Auth quanto no Modo Convidado)
+ * e retorna a interface para o estado deslogado.
+ *
+ * @returns {Promise<void>}
+ */
 async function handleSignOut() {
   localStorage.removeItem(GUEST_USER_STORAGE_KEY);
   if (isFirebaseInitialized && typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser) {
@@ -285,7 +360,13 @@ async function handleSignOut() {
   setLoggedOutState();
 }
 
-// 5. Helper Assíncrono de Cabeçalhos HTTP com Firebase ID Token (JWT)
+/**
+ * Monta os cabeçalhos HTTP autenticados com o Firebase ID Token (JWT) do usuário atual.
+ *
+ * @param {boolean} [forceRefresh=false] - Indica se deve forçar a renovação do token junto ao Firebase.
+ * @throws {Error} Lança `AUTH_REQUIRED` quando não há usuário autenticado no Firebase.
+ * @returns {Promise<Record<string, string>>} Objeto contendo `Content-Type` e `Authorization`.
+ */
 async function getAuthHeaders(forceRefresh = false) {
   const headers = { 'Content-Type': 'application/json' };
   const firebaseUser = (typeof firebase !== 'undefined' && firebase.auth)
@@ -301,6 +382,12 @@ async function getAuthHeaders(forceRefresh = false) {
   return headers;
 }
 
+/**
+ * Trata expiração ou invalidez definitiva da sessão autenticada, evitando alertas duplicados
+ * por meio da flag `isHandlingSessionExpired`, e executa o logout do usuário.
+ *
+ * @returns {Promise<void>}
+ */
 async function handleSessionExpired() {
   if (isHandlingSessionExpired) return;
   isHandlingSessionExpired = true;
@@ -312,7 +399,14 @@ async function handleSessionExpired() {
   }
 }
 
-// Requisição autenticada com renovação automática única em caso de HTTP 401
+/**
+ * Executa uma requisição `fetch` autenticada com JWT e realiza uma tentativa automática
+ * de renovação do token caso a API responda com HTTP 401.
+ *
+ * @param {string} url - Endpoint de destino da requisição.
+ * @param {RequestInit} [options={}] - Opções adicionais do `fetch` (método, corpo, cabeçalhos).
+ * @returns {Promise<Response>} Resposta HTTP final obtida do servidor.
+ */
 async function authorizedFetch(url, options = {}) {
   const headers = await getAuthHeaders(false);
   let res = await fetch(url, {
@@ -340,6 +434,13 @@ async function authorizedFetch(url, options = {}) {
 }
 
 // 6. Buscar Tarefas
+
+/**
+ * Carrega a lista de tarefas do usuário atual (do `localStorage` no modo convidado ou via API `/api/tasks`).
+ * Atualiza o estado global `tasks`, renderiza os cartões na tela e recalcula os contadores.
+ *
+ * @returns {Promise<void>}
+ */
 async function fetchTasks() {
   if (!currentUser) return;
 
@@ -380,7 +481,15 @@ async function fetchTasks() {
 }
 
 // 7. Renderizar Tarefas
+
+/**
+ * Renderiza no DOM os cartões de tarefas filtrados conforme `activeFilter`.
+ * Aplica sanitização HTML com `escapeHtml` em todos os campos textuais para prevenir XSS.
+ *
+ * @returns {void}
+ */
 function renderTasks() {
+  // Filtra a lista em memória de acordo com o chip selecionado pelo usuário
   const filteredTasks = tasks.filter(task => {
     if (activeFilter === 'pending') return !task.completed;
     if (activeFilter === 'completed') return task.completed;
@@ -398,6 +507,7 @@ function renderTasks() {
     return;
   }
 
+  // Gera o HTML de cada cartão de tarefa mantendo IDs e textos devidamente escapados
   tasksContainer.innerHTML = filteredTasks.map(task => {
     const safeId = escapeHtml(String(task.id));
     const isCompleted = task.completed;
@@ -427,6 +537,11 @@ function renderTasks() {
   }).join('');
 }
 
+/**
+ * Limpa os campos do formulário de criação de tarefa e recolhe a gaveta de detalhes opcionais.
+ *
+ * @returns {void}
+ */
 function resetTaskForm() {
   taskTitleInput.value = '';
   taskDescInput.value = '';
@@ -436,6 +551,13 @@ function resetTaskForm() {
 }
 
 // 8. Criar Tarefa
+
+/**
+ * Cria uma nova tarefa a partir dos valores preenchidos no formulário.
+ * Persiste no `localStorage` quando em modo convidado ou envia `POST /api/tasks` quando autenticado.
+ *
+ * @returns {Promise<void>}
+ */
 async function handleCreateTask() {
   if (!currentUser) return;
 
@@ -506,10 +628,20 @@ async function handleCreateTask() {
 }
 
 // 9. Atualizar Status
+
+/**
+ * Alterna o estado de conclusão de uma tarefa utilizando atualização otimista na interface.
+ * Reverte a alteração caso a requisição `PUT /api/tasks/:id` falhe no servidor.
+ *
+ * @param {string} id - Identificador da tarefa a ser atualizada.
+ * @param {boolean} completed - Novo estado de conclusão (`true` para concluída, `false` para pendente).
+ * @returns {Promise<void>}
+ */
 async function toggleTaskStatus(id, completed) {
   const task = tasks.find(t => t.id === id);
   if (!task) return;
 
+  // Guarda os valores anteriores para eventual rollback em caso de erro de rede ou API
   const previousCompleted = task.completed;
   const previousUpdatedAt = task.updatedAt;
 
@@ -553,7 +685,16 @@ async function toggleTaskStatus(id, completed) {
 }
 
 // 10. Deletar Tarefa
+
+/**
+ * Remove uma tarefa da lista utilizando atualização otimista na interface.
+ * Restaura a lista anterior caso a requisição `DELETE /api/tasks/:id` retorne erro.
+ *
+ * @param {string} id - Identificador único da tarefa a ser excluída.
+ * @returns {Promise<void>}
+ */
 async function deleteTask(id) {
+  // Mantém cópia da lista antes da remoção otimista para rollback em caso de falha
   const previousTasks = [...tasks];
   tasks = tasks.filter(t => t.id !== id);
   renderTasks();
@@ -591,6 +732,12 @@ async function deleteTask(id) {
 }
 
 // 11. Contadores
+
+/**
+ * Recalcula e atualiza no DOM os contadores totais de tarefas (todas, pendentes e concluídas).
+ *
+ * @returns {void}
+ */
 function updateCounters() {
   const total = tasks.length;
   const completed = tasks.filter(t => t.completed).length;
@@ -602,6 +749,12 @@ function updateCounters() {
 }
 
 // 12. Listeners de Eventos
+
+/**
+ * Registra todos os manipuladores de eventos de autenticação, menu de perfil e criação de tarefas.
+ *
+ * @returns {void}
+ */
 function setupEventListeners() {
   btnHeaderLogin.addEventListener('click', loginWithGoogle);
   btnHeroGoogleLogin.addEventListener('click', loginWithGoogle);
@@ -609,11 +762,13 @@ function setupEventListeners() {
 
   btnSignOut.addEventListener('click', handleSignOut);
 
+  // Alterna a visibilidade do dropdown de perfil ao clicar no avatar/gatilho
   btnProfileTrigger.addEventListener('click', (e) => {
     e.stopPropagation();
     profileDropdown.classList.toggle('hidden');
   });
 
+  // Fecha o dropdown de perfil ao clicar fora da área do usuário
   document.addEventListener('click', (e) => {
     if (!userProfileArea.contains(e.target)) {
       profileDropdown.classList.add('hidden');
@@ -621,17 +776,28 @@ function setupEventListeners() {
   });
 
   btnAddTask.addEventListener('click', handleCreateTask);
+
+  // Permite criar a tarefa rapidamente pressionando Enter no campo de título
   taskTitleInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') handleCreateTask();
   });
+
+  // Expande ou recolhe os campos opcionais de detalhes da tarefa
   btnToggleDetails.addEventListener('click', () => {
     const isOpen = taskDetailsDrawer.classList.toggle('open');
     btnToggleDetails.classList.toggle('active', isOpen);
   });
 }
 
+/**
+ * Configura os eventos de clique nos chips de filtro (`Todas`, `Pendentes`, `Concluídas`, `Alta Prioridade`).
+ * Atualiza o destaque visual do chip ativo e re-renderiza a lista filtrada.
+ *
+ * @returns {void}
+ */
 function setupFilterListeners() {
   document.querySelectorAll('.chip').forEach(btn => {
+    // Atualiza o filtro ativo e reaplica a renderização ao clicar em um chip
     btn.addEventListener('click', () => {
       document.querySelectorAll('.chip').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
@@ -642,6 +808,13 @@ function setupFilterListeners() {
 }
 
 // Helpers
+
+/**
+ * Escapa caracteres especiais de HTML para prevenir injeção de código (XSS) ao montar templates.
+ *
+ * @param {string} str - Texto bruto a ser sanitizado.
+ * @returns {string} Texto seguro para inserção via `innerHTML`.
+ */
 function escapeHtml(str) {
   if (!str) return '';
   return str
@@ -652,6 +825,12 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * Converte uma data no formato ISO `YYYY-MM-DD` para o padrão brasileiro `DD/MM/YYYY`.
+ *
+ * @param {string} dateStr - String de data no formato `YYYY-MM-DD`.
+ * @returns {string} Data formatada em `DD/MM/YYYY` ou string vazia se ausente.
+ */
 function formatDate(dateStr) {
   if (!dateStr) return '';
   const [year, month, day] = dateStr.split('-');
