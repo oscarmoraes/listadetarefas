@@ -1,14 +1,58 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const admin = require('firebase-admin');
 const { Firestore } = require('@google-cloud/firestore');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 const PROJECT_ID = process.env.GCP_PROJECT_ID || 'listadetarefas-506523';
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || PROJECT_ID;
 
-app.use(cors());
+// Inicialização do Firebase Admin SDK (verifica assinaturas JWT com chaves públicas do Google + projectId)
+if (!admin.apps.length) {
+  admin.initializeApp({
+    projectId: FIREBASE_PROJECT_ID
+  });
+}
+
+// Configuração de CORS com lista explícita de origens permitidas
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://listadetarefas-app-160309533102.southamerica-east1.run.app',
+  'http://localhost:8080',
+  'http://127.0.0.1:8080'
+];
+
+const EXTRA_ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+
+const ALLOWED_ORIGINS = new Set([
+  ...DEFAULT_ALLOWED_ORIGINS,
+  ...EXTRA_ALLOWED_ORIGINS
+]);
+
+const corsOptions = {
+  origin(origin, callback) {
+    // Permite requisições sem Origin (same-origin, healthchecks, clientes CLI)
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (ALLOWED_ORIGINS.has(origin)) {
+      return callback(null, true);
+    }
+
+    // Origem não autorizada: omite Access-Control-Allow-Origin (nunca retorna '*')
+    return callback(null, false);
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -30,12 +74,36 @@ try {
 
 const COLLECTION_NAME = 'tasks';
 
-// Middleware para extrair ID do usuário da requisição
-function extractUserId(req) {
-  return req.headers['x-user-id'] || 'anonymous';
+// Middleware de autenticação JWT via Firebase Admin SDK
+async function authenticateRequest(req, res, next) {
+  const authHeader = req.headers.authorization;
+  const match = typeof authHeader === 'string' ? authHeader.match(/^Bearer\s+(.+)$/i) : null;
+  const token = match ? match[1].trim() : '';
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      error: 'Autenticação necessária. Faça login com sua conta Google.'
+    });
+  }
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.user = {
+      uid: decoded.uid,
+      email: decoded.email || null
+    };
+    return next();
+  } catch (error) {
+    console.warn('[Auth] Falha na verificação do token JWT:', error.code || error.message);
+    return res.status(401).json({
+      success: false,
+      error: 'Token inválido ou expirado. Faça login novamente.'
+    });
+  }
 }
 
-// 1. Healthcheck
+// 1. Healthcheck (público)
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
@@ -44,12 +112,12 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// 2. Endpoint de Configuração Segura em Tempo de Execução (Runtime Config)
+// 2. Endpoint de Configuração Segura em Tempo de Execução (público)
 app.get('/api/config', (req, res) => {
   res.json({
     apiKey: process.env.FIREBASE_API_KEY || '',
     authDomain: process.env.FIREBASE_AUTH_DOMAIN || `${PROJECT_ID}.firebaseapp.com`,
-    projectId: process.env.FIREBASE_PROJECT_ID || PROJECT_ID,
+    projectId: FIREBASE_PROJECT_ID,
     storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${PROJECT_ID}.firebasestorage.app`,
     messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || '',
     appId: process.env.FIREBASE_APP_ID || '',
@@ -57,10 +125,10 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-// 2. Listar tarefas do usuário logado
-app.get('/api/tasks', async (req, res) => {
+// 3. Listar tarefas do usuário autenticado
+app.get('/api/tasks', authenticateRequest, async (req, res) => {
   try {
-    const userId = extractUserId(req);
+    const userId = req.user.uid;
 
     if (!useMemoryFallback) {
       try {
@@ -91,20 +159,20 @@ app.get('/api/tasks', async (req, res) => {
   }
 });
 
-// 3. Criar nova tarefa associada ao usuário
-app.post('/api/tasks', async (req, res) => {
+// 4. Criar nova tarefa associada ao usuário autenticado
+app.post('/api/tasks', authenticateRequest, async (req, res) => {
   try {
-    const userId = extractUserId(req);
+    const userId = req.user.uid;
     const { title, description = '', priority = 'medium', category = 'Geral', dueDate = null } = req.body;
 
-    if (!title || title.trim() === '') {
+    if (!title || typeof title !== 'string' || title.trim() === '') {
       return res.status(400).json({ success: false, error: 'O título da tarefa é obrigatório.' });
     }
 
     const newTask = {
       userId,
       title: title.trim(),
-      description: description.trim(),
+      description: typeof description === 'string' ? description.trim() : '',
       priority,
       category,
       dueDate: dueDate || null,
@@ -136,13 +204,19 @@ app.post('/api/tasks', async (req, res) => {
   }
 });
 
-// 4. Atualizar tarefa (valida se pertence ao usuário)
-app.put('/api/tasks/:id', async (req, res) => {
+// 5. Atualizar tarefa (valida se pertence ao usuário autenticado)
+app.put('/api/tasks/:id', authenticateRequest, async (req, res) => {
   try {
-    const userId = extractUserId(req);
+    const userId = req.user.uid;
     const { id } = req.params;
-    const updates = { ...req.body, updatedAt: new Date().toISOString() };
-    delete updates.userId; // impede troca de dono
+    const allowedFields = ['title', 'description', 'priority', 'category', 'dueDate', 'completed'];
+    const updates = { updatedAt: new Date().toISOString() };
+
+    for (const field of allowedFields) {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) {
+        updates[field] = req.body[field];
+      }
+    }
 
     if (!useMemoryFallback) {
       try {
@@ -154,7 +228,7 @@ app.put('/api/tasks/:id', async (req, res) => {
         }
 
         const data = doc.data();
-        if (data.userId && data.userId !== userId) {
+        if (data.userId !== userId) {
           return res.status(403).json({ success: false, error: 'Não autorizado a alterar esta tarefa.' });
         }
 
@@ -179,10 +253,10 @@ app.put('/api/tasks/:id', async (req, res) => {
   }
 });
 
-// 5. Deletar tarefa (valida se pertence ao usuário)
-app.delete('/api/tasks/:id', async (req, res) => {
+// 6. Deletar tarefa (valida se pertence ao usuário autenticado)
+app.delete('/api/tasks/:id', authenticateRequest, async (req, res) => {
   try {
-    const userId = extractUserId(req);
+    const userId = req.user.uid;
     const { id } = req.params;
 
     if (!useMemoryFallback) {
@@ -195,7 +269,7 @@ app.delete('/api/tasks/:id', async (req, res) => {
         }
 
         const data = doc.data();
-        if (data.userId && data.userId !== userId) {
+        if (data.userId !== userId) {
           return res.status(403).json({ success: false, error: 'Não autorizado a excluir esta tarefa.' });
         }
 

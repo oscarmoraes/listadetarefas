@@ -22,9 +22,9 @@ Este projeto foi construído para demonstrar, na prática e de ponta a ponta, o 
 | :--- | :--- |
 | **Lógica de Programação & JavaScript** | Manipulação do DOM, consumo de API com `fetch`, filtros de estado e validação de dados no cliente e no servidor. |
 | **HTML5 & CSS3 Responsivo** | Interface limpa, acessível e adaptável de telas mobile (320px) a desktop com variáveis CSS e layout moderno. |
-| **Backend & API REST (Node.js + Express)** | Rotas CRUD completas (`GET`, `POST`, `PUT`, `DELETE`), healthcheck (`/api/health`) e entrega segura de configuração (`/api/config`). |
-| **Modelagem & Banco de Dados NoSQL** | Persistência em nuvem com **Google Cloud Firestore** isolando documentos por usuário (`userId`), com fallback em memória para testes locais. |
-| **Autenticação & Segurança** | Login com conta Google via **Firebase Authentication**, isolamento de segredos em variáveis de ambiente (`.env` fora do Git) e páginas de privacidade/termos para OAuth. |
+| **Backend & API REST (Node.js + Express)** | Rotas CRUD protegidas por JWT (`GET`, `POST`, `PUT`, `DELETE`), CORS restrito por lista de origens permitidas, healthcheck (`/api/health`) e entrega segura de configuração (`/api/config`). |
+| **Modelagem & Banco de Dados NoSQL** | Persistência em nuvem com **Google Cloud Firestore** isolando documentos por usuário autenticado (`req.user.uid`), com fallback em memória para testes locais autenticados e `localStorage` exclusivo no modo convidado. |
+| **Autenticação & Segurança** | Login com conta Google via **Firebase Authentication**, validação criptográfica de **Firebase ID Tokens (JWT)** no backend com **Firebase Admin SDK** (`Authorization: Bearer <token>`), CORS com allowlist explícita, isolamento de segredos em variáveis de ambiente (`.env` fora do Git) e páginas de privacidade/termos para OAuth. |
 | **Containers & Cloud Computing (CI/CD)** | Empacotamento com **Docker** e deploy contínuo automático via **GitHub + Cloud Build + Google Cloud Run**. |
 
 ---
@@ -34,9 +34,10 @@ Este projeto foi construído para demonstrar, na prática e de ponta a ponta, o 
 ```mermaid
 flowchart LR
   User(["👤 Usuário (Navegador)"]) -->|HTTPS| Frontend["🌐 Frontend (HTML/CSS/JS)"]
-  Frontend -->|Login OAuth2| Auth["🔐 Firebase Authentication"]
-  Frontend -->|API REST + /api/config| API["🚀 Cloud Run (Node.js / Express)"]
-  API -->|Leitura e Escrita| DB[("🗄️ Cloud Firestore")]
+  Frontend -->|Login OAuth2 / ID Token| Auth["🔐 Firebase Authentication"]
+  Frontend -->|"Bearer JWT + /api/config"| API["🚀 Cloud Run (Node.js / Express + firebase-admin)"]
+  Frontend -.->|"Modo Convidado (somente local)"| LocalStorage[("💾 localStorage")]
+  API -->|Valida JWT e Persiste| DB[("🗄️ Cloud Firestore")]
   GitHub["💻 GitHub (main)"] -.->|Build & Deploy Automático| API
 ```
 
@@ -47,7 +48,9 @@ flowchart LR
 - Criação de tarefas com título, descrição, categoria, prioridade (`Baixa`, `Média`, `Alta`) e data de prazo.
 - Marcação de tarefas como concluídas e exclusão individual.
 - Filtros rápidos por status (*Todas*, *Pendentes*, *Concluídas*) e *Alta Prioridade*, com contadores dinâmicos.
-- **Modo Convidado** para testar imediatamente e **Login com Google** para manter a lista vinculada à conta do usuário.
+- **Login com Google (Nuvem):** sincronização autenticada via **Firebase ID Token (JWT)** no cabeçalho `Authorization: Bearer <token>`, validado no servidor com `firebase-admin` e persistido por `uid` no Cloud Firestore.
+- **Modo Convidado (Local):** permite testar imediatamente todas as funcionalidades salvando as tarefas **exclusivamente no `localStorage` do navegador** (`listadetarefas_guest_tasks`), sem enviar dados para `/api/tasks`.
+- **CORS Restrito:** apenas origens explicitamente autorizadas (produção Cloud Run, `localhost:8080`, `127.0.0.1:8080` e origens opcionais em `ALLOWED_ORIGINS`) recebem cabeçalhos CORS.
 - Fallback automático em memória quando executado localmente sem credenciais do Firestore.
 
 ---
@@ -59,10 +62,10 @@ listadeTarefas/
 ├── public/
 │   ├── index.html          # Interface principal da aplicação
 │   ├── style.css           # Estilização responsiva
-│   ├── app.js              # Lógica do frontend, autenticação e consumo da API
+│   ├── app.js              # Lógica do frontend, JWT Auth, API e modo convidado localStorage
 │   ├── privacidade.html    # Política de Privacidade (tela de consentimento OAuth)
 │   └── termos.html         # Termos de Serviço (tela de consentimento OAuth)
-├── server.js               # API REST Express + integração Firestore + Runtime Config
+├── server.js               # API REST Express + Firebase Admin JWT + CORS restrito + Firestore
 ├── package.json            # Dependências e scripts npm
 ├── package-lock.json       # Lockfile de versões das dependências
 ├── Dockerfile              # Definição da imagem Docker para o Cloud Run
@@ -97,7 +100,7 @@ listadeTarefas/
    ```bash
    cp .env.example .env
    ```
-   *(Preencha as variáveis `FIREBASE_*` no `.env` caso queira testar o login com Google localmente. Para testar apenas o CRUD no modo convidado, o servidor funciona com fallback em memória.)*
+   *(Preencha as variáveis `FIREBASE_*` no `.env` para testar o login com Google e a API autenticada localmente. No **Modo Convidado**, todas as tarefas funcionam 100% offline no `localStorage` do navegador, sem chamar `/api/tasks`.)*
 
 4. Inicie o servidor:
    ```bash
@@ -112,14 +115,16 @@ listadeTarefas/
 
 ## 🔌 Endpoints da API
 
-| Método | Rota | Descrição |
-| :---: | :--- | :--- |
-| `GET` | `/api/health` | Retorna o status do serviço, projeto GCP e modo de armazenamento (`cloud-firestore` ou `in-memory-fallback`). |
-| `GET` | `/api/config` | Entrega ao frontend as configurações públicas de runtime do Firebase lidas das variáveis de ambiente. |
-| `GET` | `/api/tasks` | Lista todas as tarefas do usuário identificado no cabeçalho `x-user-id`. |
-| `POST` | `/api/tasks` | Cria uma nova tarefa vinculada ao usuário. |
-| `PUT` | `/api/tasks/:id` | Atualiza dados ou status (`completed`) de uma tarefa do usuário. |
-| `DELETE` | `/api/tasks/:id` | Exclui uma tarefa pertencente ao usuário. |
+| Método | Rota | Autenticação | Descrição |
+| :---: | :--- | :---: | :--- |
+| `GET` | `/api/health` | Pública | Retorna o status do serviço, projeto GCP e modo de armazenamento (`cloud-firestore` ou `in-memory-fallback`). |
+| `GET` | `/api/config` | Pública | Entrega ao frontend as configurações públicas de runtime do Firebase lidas das variáveis de ambiente. |
+| `GET` | `/api/tasks` | `Bearer <ID Token>` | Lista todas as tarefas do usuário autenticado (`req.user.uid` extraído do JWT validado via `firebase-admin`). |
+| `POST` | `/api/tasks` | `Bearer <ID Token>` | Cria uma nova tarefa vinculada ao `uid` do usuário autenticado. |
+| `PUT` | `/api/tasks/:id` | `Bearer <ID Token>` | Atualiza dados ou status (`completed`) de uma tarefa, validando a posse pelo `uid` autenticado. |
+| `DELETE` | `/api/tasks/:id` | `Bearer <ID Token>` | Exclui uma tarefa, validando a posse pelo `uid` autenticado. |
+
+> 🔐 **Segurança da API:** Requisições a `/api/tasks` sem cabeçalho `Authorization: Bearer <Firebase ID Token>` válido retornam `HTTP 401`. Origens fora da allowlist de CORS não recebem `Access-Control-Allow-Origin`.
 
 ---
 
@@ -127,7 +132,7 @@ listadeTarefas/
 
 O deploy é feito de forma contínua a partir do branch `main` via **Cloud Build + Cloud Run** usando o `Dockerfile` do repositório.
 
-> 🔒 **Boas práticas de segurança:** Nenhuma chave de API ou segredo é versionado no repositório. Todas as variáveis (`GCP_PROJECT_ID`, `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_APP_ID`, `FIREBASE_MEASUREMENT_ID`) devem ser configuradas diretamente no painel do **Cloud Run → Variáveis e secrets** (ou via Secret Manager).
+> 🔒 **Boas práticas de segurança:** Nenhuma chave de API ou segredo é versionado no repositório. Todas as variáveis (`GCP_PROJECT_ID`, `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_APP_ID`, `FIREBASE_MEASUREMENT_ID` e, opcionalmente, `ALLOWED_ORIGINS`) devem ser configuradas diretamente no painel do **Cloud Run → Variáveis e secrets** (ou via Secret Manager).
 
 ---
 

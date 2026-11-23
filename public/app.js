@@ -1,11 +1,70 @@
 // Provedor Google Auth
 let googleProvider = null;
 
+// Chaves de armazenamento local (Modo Convidado)
+const GUEST_USER_STORAGE_KEY = 'taskflow_guest_user';
+const GUEST_TASKS_STORAGE_KEY = 'listadetarefas_guest_tasks';
+const GUEST_SUBTITLE = 'Modo Convidado (salvo neste navegador)';
+
 // Estado da Aplicação
 let currentUser = null;
 let tasks = [];
 let activeFilter = 'all';
 let isFirebaseInitialized = false;
+let isHandlingSessionExpired = false;
+
+// Helpers de Sessão Convidado (localStorage)
+function isGuestSession() {
+  return Boolean(currentUser && currentUser.isGuest);
+}
+
+function generateGuestTaskId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `guest-${crypto.randomUUID()}`;
+  }
+  return `guest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function loadGuestTasks() {
+  try {
+    const raw = localStorage.getItem(GUEST_TASKS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  } catch (error) {
+    console.warn('[Guest Storage] Erro ao carregar tarefas locais:', error);
+    return [];
+  }
+}
+
+function saveGuestTasks(taskList) {
+  try {
+    localStorage.setItem(GUEST_TASKS_STORAGE_KEY, JSON.stringify(taskList));
+  } catch (error) {
+    console.error('[Guest Storage] Erro ao salvar tarefas locais:', error);
+    alert('Não foi possível salvar suas tarefas no navegador.');
+  }
+}
+
+function restoreGuestSessionIfPresent() {
+  try {
+    const rawGuest = localStorage.getItem(GUEST_USER_STORAGE_KEY);
+    if (!rawGuest) return false;
+    const guestUser = JSON.parse(rawGuest);
+    if (guestUser && guestUser.isGuest) {
+      guestUser.email = GUEST_SUBTITLE;
+      currentUser = guestUser;
+      setLoggedInState(currentUser);
+      fetchTasks();
+      return true;
+    }
+  } catch (error) {
+    console.warn('[Guest Storage] Sessão de convidado inválida:', error);
+    localStorage.removeItem(GUEST_USER_STORAGE_KEY);
+  }
+  return false;
+}
 
 // Inicialização segura do Firebase via Runtime Config
 async function initFirebaseConfig() {
@@ -24,11 +83,15 @@ async function initFirebaseConfig() {
       setupFirebaseAuthObserver();
     } else {
       console.warn('[Firebase] Configuração ou SDK não disponível.');
-      setLoggedOutState();
+      if (!restoreGuestSessionIfPresent()) {
+        setLoggedOutState();
+      }
     }
   } catch (error) {
     console.error('[Firebase Init Error]', error);
-    setLoggedOutState();
+    if (!restoreGuestSessionIfPresent()) {
+      setLoggedOutState();
+    }
   }
 }
 
@@ -74,7 +137,9 @@ document.addEventListener('DOMContentLoaded', () => {
 function setupFirebaseAuthObserver() {
   if (typeof firebase === 'undefined' || !firebase.auth) {
     console.warn('Firebase Auth SDK não disponível.');
-    setLoggedOutState();
+    if (!restoreGuestSessionIfPresent()) {
+      setLoggedOutState();
+    }
     return;
   }
 
@@ -82,10 +147,12 @@ function setupFirebaseAuthObserver() {
   firebase.auth().onAuthStateChanged((user) => {
     if (user) {
       console.log('[Auth] Usuário conectado:', user.email);
+      localStorage.removeItem(GUEST_USER_STORAGE_KEY);
       currentUser = {
         uid: user.uid,
         displayName: user.displayName || user.email.split('@')[0],
         email: user.email,
+        isGuest: false,
         photoURL: user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'U')}&background=2563EB&color=fff`
       };
       setLoggedInState(currentUser);
@@ -93,12 +160,7 @@ function setupFirebaseAuthObserver() {
     } else {
       console.log('[Auth] Nenhum usuário conectado.');
       // Checar se estava em modo convidado local
-      const guestUser = localStorage.getItem('taskflow_guest_user');
-      if (guestUser) {
-        currentUser = JSON.parse(guestUser);
-        setLoggedInState(currentUser);
-        fetchTasks();
-      } else {
+      if (!restoreGuestSessionIfPresent()) {
         setLoggedOutState();
       }
     }
@@ -110,10 +172,13 @@ function setLoggedInState(user) {
   userProfileArea.classList.remove('hidden');
 
   const photo = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'U')}&background=2563EB&color=fff`;
+  const emailSubtitle = user.isGuest ? GUEST_SUBTITLE : (user.email || '');
+
   userAvatar.src = photo;
   dropdownAvatar.src = photo;
   userName.textContent = user.displayName || 'Usuário';
-  userEmail.textContent = user.email || (user.isGuest ? 'Modo Convidado' : '');
+  userEmail.textContent = emailSubtitle;
+  userEmail.title = emailSubtitle;
 
   welcomeHero.classList.add('hidden');
   tasksAppArea.classList.remove('hidden');
@@ -122,7 +187,7 @@ function setLoggedInState(user) {
 function setLoggedOutState() {
   currentUser = null;
   tasks = [];
-  localStorage.removeItem('taskflow_guest_user');
+  localStorage.removeItem(GUEST_USER_STORAGE_KEY);
 
   btnHeaderLogin.classList.remove('hidden');
   userProfileArea.classList.add('hidden');
@@ -134,8 +199,8 @@ function setLoggedOutState() {
 
 // 2. Fluxo Oficial de Login com Google via Firebase Auth
 async function loginWithGoogle() {
-  if (typeof firebase === 'undefined' || !firebase.auth) {
-    alert('SDK do Firebase não foi carregado. Verifique sua conexão.');
+  if (!isFirebaseInitialized || typeof firebase === 'undefined' || !firebase.auth) {
+    alert('SDK do Firebase não foi inicializado. Verifique a configuração do ambiente.');
     return;
   }
 
@@ -158,7 +223,7 @@ async function loginWithGoogle() {
     console.log('[Auth Success]', result.user.displayName);
   } catch (error) {
     console.warn('[Popup Auth Error]', error.code, error.message);
-    
+
     // Se o popup foi bloqueado pelo navegador, usa Redirect
     if (error.code === 'auth/popup-blocked' || error.code === 'auth/cancelled-popup-request') {
       try {
@@ -190,17 +255,17 @@ async function loginWithGoogle() {
   }
 }
 
-// 3. Modo Convidado
+// 3. Modo Convidado (armazenamento exclusivo em localStorage)
 function loginAsGuest() {
   const guestUser = {
     uid: 'guest-' + (localStorage.getItem('guest_uid') || Math.random().toString(36).substring(2, 10)),
     displayName: 'Visitante',
-    email: 'Modo Convidado',
+    email: GUEST_SUBTITLE,
     isGuest: true,
     photoURL: 'https://ui-avatars.com/api/?name=Visitante&background=64748B&color=fff'
   };
   localStorage.setItem('guest_uid', guestUser.uid.replace('guest-', ''));
-  localStorage.setItem('taskflow_guest_user', JSON.stringify(guestUser));
+  localStorage.setItem(GUEST_USER_STORAGE_KEY, JSON.stringify(guestUser));
 
   currentUser = guestUser;
   setLoggedInState(guestUser);
@@ -209,27 +274,81 @@ function loginAsGuest() {
 
 // 4. Logout
 async function handleSignOut() {
-  localStorage.removeItem('taskflow_guest_user');
-  if (typeof firebase !== 'undefined' && firebase.auth) {
-    await firebase.auth().signOut();
+  localStorage.removeItem(GUEST_USER_STORAGE_KEY);
+  if (isFirebaseInitialized && typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser) {
+    try {
+      await firebase.auth().signOut();
+    } catch (err) {
+      console.warn('[Auth] Erro ao encerrar sessão Firebase:', err);
+    }
   }
   setLoggedOutState();
 }
 
-// 5. Helper de Cabeçalhos HTTP
-function getAuthHeaders() {
+// 5. Helper Assíncrono de Cabeçalhos HTTP com Firebase ID Token (JWT)
+async function getAuthHeaders(forceRefresh = false) {
   const headers = { 'Content-Type': 'application/json' };
-  if (currentUser && currentUser.uid) {
-    headers['x-user-id'] = currentUser.uid;
-  } else {
-    headers['x-user-id'] = 'anonymous';
+  const firebaseUser = (typeof firebase !== 'undefined' && firebase.auth)
+    ? firebase.auth().currentUser
+    : null;
+
+  if (!firebaseUser) {
+    throw new Error('AUTH_REQUIRED');
   }
+
+  const token = await firebaseUser.getIdToken(forceRefresh);
+  headers['Authorization'] = `Bearer ${token}`;
   return headers;
+}
+
+async function handleSessionExpired() {
+  if (isHandlingSessionExpired) return;
+  isHandlingSessionExpired = true;
+  try {
+    alert('Sua sessão expirou ou não está autorizada. Faça login novamente com sua conta Google.');
+    await handleSignOut();
+  } finally {
+    isHandlingSessionExpired = false;
+  }
+}
+
+// Requisição autenticada com renovação automática única em caso de HTTP 401
+async function authorizedFetch(url, options = {}) {
+  const headers = await getAuthHeaders(false);
+  let res = await fetch(url, {
+    ...options,
+    headers: { ...headers, ...(options.headers || {}) }
+  });
+
+  if (res.status === 401) {
+    try {
+      const refreshedHeaders = await getAuthHeaders(true);
+      res = await fetch(url, {
+        ...options,
+        headers: { ...refreshedHeaders, ...(options.headers || {}) }
+      });
+    } catch (refreshErr) {
+      console.warn('[Auth] Falha ao renovar token JWT:', refreshErr);
+    }
+  }
+
+  if (res.status === 401) {
+    await handleSessionExpired();
+  }
+
+  return res;
 }
 
 // 6. Buscar Tarefas
 async function fetchTasks() {
   if (!currentUser) return;
+
+  if (isGuestSession()) {
+    tasks = loadGuestTasks();
+    renderTasks();
+    updateCounters();
+    return;
+  }
 
   try {
     tasksContainer.innerHTML = `
@@ -238,17 +357,23 @@ async function fetchTasks() {
       </div>
     `;
 
-    const res = await fetch('/api/tasks', { headers: getAuthHeaders() });
+    const res = await authorizedFetch('/api/tasks');
+    if (res.status === 401) return;
+
     const result = await res.json();
 
-    if (result.success) {
+    if (res.ok && result.success) {
       tasks = result.data || [];
       renderTasks();
       updateCounters();
     } else {
-      tasksContainer.innerHTML = `<div class="empty-box">Erro ao carregar tarefas: ${result.error}</div>`;
+      tasksContainer.innerHTML = `<div class="empty-box">Erro ao carregar tarefas: ${escapeHtml(result.error || 'Erro desconhecido')}</div>`;
     }
   } catch (error) {
+    if (error.message === 'AUTH_REQUIRED') {
+      await handleSessionExpired();
+      return;
+    }
     console.error('Erro ao buscar tarefas:', error);
     tasksContainer.innerHTML = `<div class="empty-box">Não foi possível conectar ao servidor.</div>`;
   }
@@ -274,13 +399,14 @@ function renderTasks() {
   }
 
   tasksContainer.innerHTML = filteredTasks.map(task => {
+    const safeId = escapeHtml(String(task.id));
     const isCompleted = task.completed;
     const priorityLabel = task.priority === 'high' ? 'Alta' : (task.priority === 'medium' ? 'Média' : 'Baixa');
     const priorityClass = `tag-p-${task.priority || 'medium'}`;
 
     return `
-      <div class="task-item ${isCompleted ? 'completed' : ''}" data-id="${task.id}">
-        <input type="checkbox" class="task-check" ${isCompleted ? 'checked' : ''} onchange="toggleTaskStatus('${task.id}', this.checked)">
+      <div class="task-item ${isCompleted ? 'completed' : ''}" data-id="${safeId}">
+        <input type="checkbox" class="task-check" ${isCompleted ? 'checked' : ''} onchange="toggleTaskStatus('${safeId}', this.checked)">
         
         <div class="task-body">
           <div class="task-text">${escapeHtml(task.title)}</div>
@@ -293,7 +419,7 @@ function renderTasks() {
           </div>
         </div>
 
-        <button class="task-delete" onclick="deleteTask('${task.id}')" title="Excluir">
+        <button class="task-delete" onclick="deleteTask('${safeId}')" title="Excluir">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
@@ -301,8 +427,18 @@ function renderTasks() {
   }).join('');
 }
 
+function resetTaskForm() {
+  taskTitleInput.value = '';
+  taskDescInput.value = '';
+  taskDueDateInput.value = '';
+  taskDetailsDrawer.classList.remove('open');
+  btnToggleDetails.classList.remove('active');
+}
+
 // 8. Criar Tarefa
 async function handleCreateTask() {
+  if (!currentUser) return;
+
   const title = taskTitleInput.value.trim();
   if (!title) {
     taskTitleInput.focus();
@@ -317,31 +453,53 @@ async function handleCreateTask() {
     dueDate: taskDueDateInput.value || null
   };
 
+  if (isGuestSession()) {
+    const now = new Date().toISOString();
+    const newTask = {
+      id: generateGuestTaskId(),
+      title: payload.title,
+      description: payload.description,
+      category: payload.category,
+      priority: payload.priority,
+      dueDate: payload.dueDate,
+      completed: false,
+      createdAt: now,
+      updatedAt: now
+    };
+    tasks.unshift(newTask);
+    saveGuestTasks(tasks);
+    renderTasks();
+    updateCounters();
+    resetTaskForm();
+    return;
+  }
+
   btnAddTask.disabled = true;
 
   try {
-    const res = await fetch('/api/tasks', {
+    const res = await authorizedFetch('/api/tasks', {
       method: 'POST',
-      headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     });
 
+    if (res.status === 401) return;
+
     const result = await res.json();
-    if (result.success) {
+    if (res.ok && result.success) {
       tasks.unshift(result.data);
       renderTasks();
       updateCounters();
-
-      taskTitleInput.value = '';
-      taskDescInput.value = '';
-      taskDueDateInput.value = '';
-      taskDetailsDrawer.classList.remove('open');
-      btnToggleDetails.classList.remove('active');
+      resetTaskForm();
     } else {
-      alert('Erro: ' + result.error);
+      alert('Erro: ' + (result.error || 'Não foi possível criar a tarefa.'));
     }
   } catch (err) {
+    if (err.message === 'AUTH_REQUIRED') {
+      await handleSessionExpired();
+      return;
+    }
     console.error('Erro de conexão:', err);
+    alert('Não foi possível conectar ao servidor para salvar a tarefa.');
   } finally {
     btnAddTask.disabled = false;
   }
@@ -352,33 +510,82 @@ async function toggleTaskStatus(id, completed) {
   const task = tasks.find(t => t.id === id);
   if (!task) return;
 
+  const previousCompleted = task.completed;
+  const previousUpdatedAt = task.updatedAt;
+
   task.completed = completed;
+  task.updatedAt = new Date().toISOString();
   renderTasks();
   updateCounters();
 
+  if (isGuestSession()) {
+    saveGuestTasks(tasks);
+    return;
+  }
+
   try {
-    await fetch(`/api/tasks/${id}`, {
+    const res = await authorizedFetch(`/api/tasks/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      headers: getAuthHeaders(),
       body: JSON.stringify({ completed })
     });
+
+    if (res.status === 401) return;
+
+    if (!res.ok) {
+      task.completed = previousCompleted;
+      task.updatedAt = previousUpdatedAt;
+      renderTasks();
+      updateCounters();
+      const result = await res.json().catch(() => ({}));
+      alert('Erro ao atualizar tarefa: ' + (result.error || 'Tente novamente.'));
+    }
   } catch (err) {
+    if (err.message === 'AUTH_REQUIRED') {
+      await handleSessionExpired();
+      return;
+    }
+    task.completed = previousCompleted;
+    task.updatedAt = previousUpdatedAt;
+    renderTasks();
+    updateCounters();
     console.error('Erro ao atualizar status:', err);
   }
 }
 
 // 10. Deletar Tarefa
 async function deleteTask(id) {
+  const previousTasks = [...tasks];
   tasks = tasks.filter(t => t.id !== id);
   renderTasks();
   updateCounters();
 
+  if (isGuestSession()) {
+    saveGuestTasks(tasks);
+    return;
+  }
+
   try {
-    await fetch(`/api/tasks/${id}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders()
+    const res = await authorizedFetch(`/api/tasks/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
     });
+
+    if (res.status === 401) return;
+
+    if (!res.ok) {
+      tasks = previousTasks;
+      renderTasks();
+      updateCounters();
+      const result = await res.json().catch(() => ({}));
+      alert('Erro ao excluir tarefa: ' + (result.error || 'Tente novamente.'));
+    }
   } catch (err) {
+    if (err.message === 'AUTH_REQUIRED') {
+      await handleSessionExpired();
+      return;
+    }
+    tasks = previousTasks;
+    renderTasks();
+    updateCounters();
     console.error('Erro ao deletar tarefa:', err);
   }
 }
@@ -437,7 +644,12 @@ function setupFilterListeners() {
 // Helpers
 function escapeHtml(str) {
   if (!str) return '';
-  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function formatDate(dateStr) {
