@@ -220,5 +220,5 @@ app.delete('/api/tasks/:id', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 TaskFlow Backend rodando na porta: ${PORT}`);
+  console.log(`🚀 Lista de Tarefas Backend rodando na porta: ${PORT}`);
 });
